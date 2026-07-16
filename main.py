@@ -19,7 +19,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": update.message.text}],
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
         )
         await update.message.reply_text(chat_completion.choices[0].message.content)
     except Exception as e:
