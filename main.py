@@ -23,37 +23,38 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS history
-                 (chat_id INTEGER, role TEXT, content TEXT, tool_calls TEXT)''')
+                 (chat_id INTEGER, role TEXT, content TEXT, tool_calls TEXT, tool_call_id TEXT)''')
     conn.commit()
     conn.close()
 
 def get_history(chat_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT role, content, tool_calls FROM history WHERE chat_id=?", (chat_id,))
+    c.execute("SELECT role, content, tool_calls, tool_call_id FROM history WHERE chat_id=?", (chat_id,))
     rows = c.fetchall()
     conn.close()
     history = []
-    for role, content, tool_calls in rows:
+    for role, content, tool_calls, tool_call_id in rows:
         msg = {"role": role}
         if content:
             msg["content"] = content
         if tool_calls:
             msg["tool_calls"] = json.loads(tool_calls)
+        if tool_call_id:
+            msg["tool_call_id"] = tool_call_id
         history.append(msg)
     return history
 
-def save_message(chat_id, role, content=None, tool_calls=None):
+def save_message(chat_id, role, content=None, tool_calls=None, tool_call_id=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Convertir tool_calls a diccionarios nativos antes de serializar
     if tool_calls:
         tool_calls_dict = [tc.model_dump() if hasattr(tc, 'model_dump') else tc for tc in tool_calls]
         tool_calls_json = json.dumps(tool_calls_dict)
     else:
         tool_calls_json = None
-    c.execute("INSERT INTO history VALUES (?, ?, ?, ?)", 
-              (chat_id, role, content, tool_calls_json))
+    c.execute("INSERT INTO history VALUES (?, ?, ?, ?, ?)", 
+              (chat_id, role, content, tool_calls_json, tool_call_id))
     conn.commit()
     conn.close()
 
@@ -104,7 +105,6 @@ def search_web(query: str) -> str:
 def calculate(expression: str) -> str:
     """Evalúa una expresión matemática."""
     try:
-        # Solo permitir caracteres seguros
         allowed_chars = set('0123456789+-*/.() ')
         if not all(c in allowed_chars for c in expression):
             return "Expresión no válida. Solo uso números y operadores matemáticos."
@@ -230,7 +230,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 function_name = tool_call.function.name
                 function_args = json.loads(tool_call.function.arguments)
                 function_response = available_functions[function_name](**function_args)
-                save_message(chat_id, "tool", function_response)
+                save_message(chat_id, "tool", function_response, tool_call_id=tool_call.id)
             
             history = get_history(chat_id)
             final_response = client.chat.completions.create(
@@ -273,7 +273,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 function_name = tool_call.function.name
                 function_args = json.loads(tool_call.function.arguments)
                 function_response = available_functions[function_name](**function_args)
-                save_message(chat_id, "tool", function_response)
+                save_message(chat_id, "tool", function_response, tool_call_id=tool_call.id)
             
             history = get_history(chat_id)
             final_response = client.chat.completions.create(
