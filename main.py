@@ -115,20 +115,21 @@ def calculate(expression: str) -> str:
         return f"Error al calcular: {str(e)}"
 
 tools = [
-    {
+        {
         "type": "function",
         "function": {
             "name": "get_weather",
-            "description": "Consulta el clima actual de una ubicación (ciudad, país).",
+            "description": "Obtiene la temperatura actual de una ciudad. NO requiere API key. Usa esta herramienta cuando el usuario pregunte por el clima.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "Nombre de la ciudad o ubicación (ej: 'Madrid', 'Buenos Aires')"
+                        "description": "Nombre de la ciudad (ej: 'Bogota', 'Madrid', 'Buenos Aires'). No incluyas países ni códigos postales."
                     }
                 },
-                "required": ["location"]
+                "required": ["location"],
+                "additionalProperties": False
             }
         }
     },
@@ -294,7 +295,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     clear_history(chat_id)
-    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes consultar el clima, buscar en la web y hacer cálculos. Responde en español.")
+    save_message(chat_id, "system", "Eres un asistente personal útil. TIENES HERRAMIENTAS REALES para consultar el clima, buscar en la web y hacer cálculos. Usa las herramientas cuando sea necesario, no inventes datos. Responde en español.")
     await update.message.reply_text(
         "¡Hola! Puedo:\n"
         "🌤️ Consultar el clima\n"
