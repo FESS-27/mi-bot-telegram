@@ -196,7 +196,7 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     clear_history(chat_id)
-    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde en el mismo idioma que te hablen, español en español, inglés en inglés.")
+    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde de manera corta y al punto sin muchas explicaciones, en el mismo idioma que te hablen, español en español, inglés en inglés.")
     await update.message.reply_text("¡Hola! Puedo:\n🔍 Buscar en la web\n🧮 Hacer cálculos\n🎤 Transcribir voz\n\nUsa /reset para borrar memoria.")
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
