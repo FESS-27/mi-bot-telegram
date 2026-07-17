@@ -215,7 +215,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="llama-3.3-70b-versatile",
             messages=history,
             tools=tools,
             tool_choice="auto"
@@ -234,7 +234,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             history = get_history(chat_id)
             final_response = client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+                model="llama-3.3-70b-versatile",
                 messages=history
             )
             reply = final_response.choices[0].message.content
@@ -258,7 +258,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = get_history(chat_id)
 
         response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="llama-3.3-70b-versatile",
             messages=history,
             tools=tools,
             tool_choice="auto"
