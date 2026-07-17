@@ -115,21 +115,20 @@ def calculate(expression: str) -> str:
         return f"Error al calcular: {str(e)}"
 
 tools = [
-        {
+            {
         "type": "function",
         "function": {
             "name": "get_weather",
-            "description": "Obtiene la temperatura actual de una ciudad. NO requiere API key. Usa esta herramienta cuando el usuario pregunte por el clima.",
+            "description": "Obtiene la temperatura actual de una ciudad.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "Nombre de la ciudad (ej: 'Bogota', 'Madrid', 'Buenos Aires'). No incluyas países ni códigos postales."
+                        "description": "Nombre de la ciudad (ej: Bogota, Madrid)"
                     }
                 },
-                "required": ["location"],
-                "additionalProperties": False
+                "required": ["location"]
             }
         }
     },
@@ -216,7 +215,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama3-groq-70b-8192-tool-use-preview",
             messages=history,
             tools=tools,
             tool_choice="auto"
@@ -235,7 +234,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             history = get_history(chat_id)
             final_response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="llama3-groq-70b-8192-tool-use-preview",
                 messages=history
             )
             reply = final_response.choices[0].message.content
@@ -259,7 +258,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = get_history(chat_id)
 
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama3-groq-70b-8192-tool-use-preview",
             messages=history,
             tools=tools,
             tool_choice="auto"
