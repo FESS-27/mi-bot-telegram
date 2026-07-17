@@ -46,8 +46,14 @@ def get_history(chat_id):
 def save_message(chat_id, role, content=None, tool_calls=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    # Convertir tool_calls a diccionarios nativos antes de serializar
+    if tool_calls:
+        tool_calls_dict = [tc.model_dump() if hasattr(tc, 'model_dump') else tc for tc in tool_calls]
+        tool_calls_json = json.dumps(tool_calls_dict)
+    else:
+        tool_calls_json = None
     c.execute("INSERT INTO history VALUES (?, ?, ?, ?)", 
-              (chat_id, role, content, json.dumps(tool_calls) if tool_calls else None))
+              (chat_id, role, content, tool_calls_json))
     conn.commit()
     conn.close()
 
