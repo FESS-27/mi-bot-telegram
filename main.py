@@ -67,26 +67,7 @@ def clear_history(chat_id):
 
 init_db()
 
-# --- Herramientas ---
-def get_weather(location: str) -> str:
-    """Consulta el clima actual de una ubicación."""
-    try:
-        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1"
-        geo_resp = requests.get(geo_url).json()
-        if "results" not in geo_resp:
-            return "No encontré esa ubicación."
-        
-        lat = geo_resp["results"][0]["latitude"]
-        lon = geo_resp["results"][0]["longitude"]
-        
-        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
-        weather_resp = requests.get(weather_url).json()
-        temp = weather_resp["current_weather"]["temperature"]
-        
-        return f"En {location} la temperatura actual es de {temp}°C."
-    except Exception as e:
-        return f"Error al consultar el clima: {str(e)}"
-
+# --- Herramientas (Web y Calculadora) ---
 def search_web(query: str) -> str:
     """Busca información en la web usando DuckDuckGo."""
     try:
@@ -94,56 +75,32 @@ def search_web(query: str) -> str:
             results = list(ddgs.text(query, max_results=5))
             if not results:
                 return "No encontré resultados para esa búsqueda."
-            
-            summary = []
-            for r in results:
-                summary.append(f"- {r['title']}: {r['body']}")
+            summary = [f"- {r['title']}: {r['body']}" for r in results]
             return "\n".join(summary)
     except Exception as e:
-        return f"Error al buscar en la web: {str(e)}"
+        return f"Error al buscar: {str(e)}"
 
 def calculate(expression: str) -> str:
     """Evalúa una expresión matemática."""
     try:
         allowed_chars = set('0123456789+-*/.() ')
         if not all(c in allowed_chars for c in expression):
-            return "Expresión no válida. Solo uso números y operadores matemáticos."
-        
+            return "Expresión no válida."
         result = eval(expression)
         return f"El resultado de {expression} es {result}"
     except Exception as e:
         return f"Error al calcular: {str(e)}"
 
 tools = [
-            {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "Obtiene la temperatura actual de una ciudad.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "Nombre de la ciudad (ej: Bogota, Madrid)"
-                    }
-                },
-                "required": ["location"]
-            }
-        }
-    },
     {
         "type": "function",
         "function": {
             "name": "search_web",
-            "description": "Busca información actualizada en la web sobre cualquier tema.",
+            "description": "Busca información actualizada en la web.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "La consulta de búsqueda (ej: 'últimas noticias tecnología', 'precio bitcoin hoy')"
-                    }
+                    "query": {"type": "string", "description": "La consulta de búsqueda"}
                 },
                 "required": ["query"]
             }
@@ -157,10 +114,7 @@ tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "La expresión matemática (ej: '2+2', '15*3', '100/7')"
-                    }
+                    "expression": {"type": "string", "description": "La expresión matemática (ej: '2+2')"}
                 },
                 "required": ["expression"]
             }
@@ -169,111 +123,60 @@ tools = [
 ]
 
 available_functions = {
-    "get_weather": get_weather,
     "search_web": search_web,
     "calculate": calculate
 }
 
 # --- Reconocimiento de voz ---
 async def transcribe_audio(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> str:
-    """Transcribe audio usando Whisper de Groq."""
     try:
         file = await context.bot.get_file(file_id)
         audio_path = f"/tmp/{file_id}.ogg"
         await file.download_to_drive(audio_path)
-        
         with open(audio_path, "rb") as audio_file:
             transcription = client.audio.transcriptions.create(
-                file=audio_file,
-                model="whisper-large-v3",
-                response_format="text"
+                file=audio_file, model="whisper-large-v3", response_format="text"
             )
-        
         os.remove(audio_path)
         return transcription
     except Exception as e:
-        logging.error(f"Error transcribiendo audio: {e}")
+        logging.error(f"Error transcribiendo: {e}")
         return None
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja mensajes de voz."""
     chat_id = update.effective_chat.id
-    file_id = update.message.voice.file_id
-    
-    await update.message.reply_text("🎤 Transcribiendo tu mensaje de voz...")
-    
-    transcription = await transcribe_audio(file_id, context)
+    await update.message.reply_text("🎤 Transcribiendo...")
+    transcription = await transcribe_audio(update.message.voice.file_id, context)
     if not transcription:
-        await update.message.reply_text("No pude transcribir tu mensaje. Intenta de nuevo.")
+        await update.message.reply_text("No pude transcribir tu mensaje.")
         return
     
     await update.message.reply_text(f"📝 Transcripción: {transcription}")
-    
-    # Procesar la transcripción como un mensaje de texto
-    save_message(chat_id, "user", transcription)
-    history = get_history(chat_id)
-    
-    try:
-        response = client.chat.completions.create(
-            model="llama3-groq-70b-8192-tool-use-preview",
-            messages=history,
-            tools=tools,
-            tool_choice="auto"
-        )
-        
-        response_message = response.choices[0].message
-        
-        if response_message.tool_calls:
-            save_message(chat_id, "assistant", None, response_message.tool_calls)
-            
-            for tool_call in response_message.tool_calls:
-                function_name = tool_call.function.name
-                function_args = json.loads(tool_call.function.arguments)
-                function_response = available_functions[function_name](**function_args)
-                save_message(chat_id, "tool", function_response, tool_call_id=tool_call.id)
-            
-            history = get_history(chat_id)
-            final_response = client.chat.completions.create(
-                model="llama3-groq-70b-8192-tool-use-preview",
-                messages=history
-            )
-            reply = final_response.choices[0].message.content
-        else:
-            reply = response_message.content
-        
-        save_message(chat_id, "assistant", reply)
-        await update.message.reply_text(reply)
-        
-    except Exception as e:
-        logging.error(f"Error: {e}")
-        await update.message.reply_text("Hubo un error al procesar tu mensaje.")
+    await process_text(chat_id, transcription, update, context)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja mensajes de texto."""
-    chat_id = update.effective_chat.id
-    user_text = update.message.text
+    await process_text(update.effective_chat.id, update.message.text, update, context)
 
+async def process_text(chat_id: int, user_text: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         save_message(chat_id, "user", user_text)
         history = get_history(chat_id)
 
         response = client.chat.completions.create(
-            model="llama3-groq-70b-8192-tool-use-preview",
+            model="llama-3.1-8b-instant",
             messages=history,
             tools=tools,
             tool_choice="auto"
         )
-
         response_message = response.choices[0].message
         
         if response_message.tool_calls:
             save_message(chat_id, "assistant", None, response_message.tool_calls)
-            
             for tool_call in response_message.tool_calls:
-                function_name = tool_call.function.name
-                function_args = json.loads(tool_call.function.arguments)
-                function_response = available_functions[function_name](**function_args)
-                save_message(chat_id, "tool", function_response, tool_call_id=tool_call.id)
+                func_name = tool_call.function.name
+                func_args = json.loads(tool_call.function.arguments)
+                func_response = available_functions[func_name](**func_args)
+                save_message(chat_id, "tool", func_response, tool_call_id=tool_call.id)
             
             history = get_history(chat_id)
             final_response = client.chat.completions.create(
@@ -286,7 +189,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         save_message(chat_id, "assistant", reply)
         await update.message.reply_text(reply)
-        
     except Exception as e:
         logging.error(f"Error: {e}")
         await update.message.reply_text("Hubo un error al procesar tu mensaje.")
@@ -294,20 +196,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     clear_history(chat_id)
-    save_message(chat_id, "system", "Eres un asistente personal útil. TIENES HERRAMIENTAS REALES para consultar el clima, buscar en la web y hacer cálculos. Usa las herramientas cuando sea necesario, no inventes datos. Responde en español.")
-    await update.message.reply_text(
-        "¡Hola! Puedo:\n"
-        "🌤️ Consultar el clima\n"
-        "🔍 Buscar en la web\n"
-        "🧮 Hacer cálculos\n"
-        "🎤 Transcribir mensajes de voz\n\n"
-        "Usa /reset para borrar la memoria."
-    )
+    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde en el mismo idioma que te hablen, español en español, inglés en inglés.")
+    await update.message.reply_text("¡Hola! Puedo:\n🔍 Buscar en la web\n🧮 Hacer cálculos\n🎤 Transcribir voz\n\nUsa /reset para borrar memoria.")
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     clear_history(chat_id)
-    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes consultar el clima, buscar en la web y hacer cálculos. Responde en español.")
+    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde en español e inglés.")
     await update.message.reply_text("Memoria borrada.")
 
 def main():
