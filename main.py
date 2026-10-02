@@ -237,7 +237,8 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                     model=model,
                     messages=history,
                     tools=tools,
-                    tool_choice="auto"
+                    tool_choice="auto",
+                    max_tokens=500,
                 )
                 logging.info(f"DEBUG - Modelo usado (1ra llamada): {model}")
                 break
@@ -269,7 +270,8 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                 try:
                     final_response = client.chat.completions.create(
                         model=model,
-                        messages=history
+                        messages=history,
+                        max_tokens=500,
                     )
                     logging.info(f"DEBUG - Modelo usado (respuesta final): {model}")
                     break
