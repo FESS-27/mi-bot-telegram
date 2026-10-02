@@ -5,7 +5,7 @@ import json
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from groq import Groq
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
