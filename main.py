@@ -2,7 +2,6 @@ import os
 import logging
 import sqlite3
 import json
-import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from groq import Groq
@@ -16,8 +15,8 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
 client = Groq(api_key=GROQ_API_KEY)
 
-# Lista de modelos de respaldo para Groq
-GROQ_MODELS = ["llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+# Solo modelos que han demostrado funcionar (200 OK) en tus logs
+GROQ_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 
 # --- SQLite: Memoria persistente ---
 DB_PATH = "chat_history.db"
@@ -70,22 +69,24 @@ def clear_history(chat_id):
 
 init_db()
 
-# --- Herramientas (Web y Calculadora) ---
+# --- Herramientas ---
 def search_web(query: str) -> str:
-    """Busca información en la web usando DuckDuckGo."""
     try:
+        logging.info(f"DEBUG BÚSQUEDA - Query: {query}")
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
+            results = list(ddgs.text(query, max_results=3))
             if not results:
+                logging.warning("DEBUG BÚSQUEDA - Sin resultados")
                 return "No encontré resultados para esa búsqueda."
-            summary = [f"- {r['title']}: {r['body']}" for r in results]
-            logging.info(f"DEBUG BÚSQUEDA: {summary}")
-            return "\n".join(summary)
+            summary = [f"- {r.get('title', 'Sin título')}: {r.get('body', 'Sin descripción')}" for r in results]
+            result_text = "\n".join(summary)
+            logging.info(f"DEBUG BÚSQUEDA - Éxito: {result_text[:200]}...") # Primeros 200 chars
+            return result_text
     except Exception as e:
+        logging.error(f"DEBUG BÚSQUEDA - Error: {str(e)}")
         return f"Error al buscar: {str(e)}"
 
 def calculate(expression: str) -> str:
-    """Evalúa una expresión matemática."""
     try:
         allowed_chars = set('0123456789+-*/.() ')
         if not all(c in allowed_chars for c in expression):
@@ -131,7 +132,7 @@ available_functions = {
     "calculate": calculate
 }
 
-# --- Reconocimiento de voz ---
+# --- Voz ---
 async def transcribe_audio(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> str:
     try:
         file = await context.bot.get_file(file_id)
@@ -176,25 +177,26 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                     tools=tools,
                     tool_choice="auto"
                 )
-                logging.info(f"DEBUG - Modelo usado: {model}")
-                logging.info(f"DEBUG - Respuesta cruda: {response.choices[0].message}")
-                break # Éxito, salir del bucle
+                logging.info(f"DEBUG - Modelo usado (1ra llamada): {model}")
+                break
             except Exception as e:
                 last_error = e
                 logging.warning(f"Modelo {model} falló: {e}")
                 continue
         
         if response is None:
-            raise last_error # Si todos fallan, lanza el último error
+            raise last_error
 
         response_message = response.choices[0].message
         
         if response_message.tool_calls:
             logging.info("DEBUG - Tool calls detectados correctamente.")
             save_message(chat_id, "assistant", None, response_message.tool_calls)
+            
             for tool_call in response_message.tool_calls:
                 func_name = tool_call.function.name
                 func_args = json.loads(tool_call.function.arguments)
+                logging.info(f"DEBUG - Ejecutando función: {func_name} con args: {func_args}")
                 func_response = available_functions[func_name](**func_args)
                 save_message(chat_id, "tool", func_response, tool_call_id=tool_call.id)
             
@@ -207,6 +209,7 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                         model=model,
                         messages=history
                     )
+                    logging.info(f"DEBUG - Modelo usado (respuesta final): {model}")
                     break
                 except Exception as e:
                     last_error = e
@@ -217,20 +220,21 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                 raise last_error
                 
             reply = final_response.choices[0].message.content
+            logging.info(f"DEBUG - Respuesta final enviada al usuario: {reply[:200]}...")
         else:
-            logging.warning("DEBUG - No hay tool_calls, el modelo devolvió texto plano (posible alucinación de XML).")
+            logging.warning("DEBUG - No hay tool_calls, el modelo devolvió texto plano.")
             reply = response_message.content
 
         save_message(chat_id, "assistant", reply)
         await update.message.reply_text(reply)
     except Exception as e:
-        logging.error(f"Error: {e}")
+        logging.error(f"Error crítico: {e}")
         await update.message.reply_text("Hubo un error al procesar tu mensaje.")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     clear_history(chat_id)
-    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde de manera corta y al punto sin muchas explicaciones, en el mismo idioma que te hablen, español en español, inglés en inglés.")
+    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde de manera corta y al punto, en el mismo idioma que te hablen.")
     await update.message.reply_text("¡Hola! Puedo:\n🔍 Buscar en la web\n🧮 Hacer cálculos\n🎤 Transcribir voz\n\nUsa /reset para borrar memoria.")
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
