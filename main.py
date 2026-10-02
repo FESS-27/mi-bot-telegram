@@ -175,6 +175,8 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                     tools=tools,
                     tool_choice="auto"
                 )
+                logging.info(f"DEBUG - Modelo usado: {model}")
+                logging.info(f"DEBUG - Respuesta cruda: {response.choices[0].message}")
                 break # Éxito, salir del bucle
             except Exception as e:
                 last_error = e
@@ -187,6 +189,7 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
         response_message = response.choices[0].message
         
         if response_message.tool_calls:
+            logging.info("DEBUG - Tool calls detectados correctamente.")
             save_message(chat_id, "assistant", None, response_message.tool_calls)
             for tool_call in response_message.tool_calls:
                 func_name = tool_call.function.name
@@ -214,6 +217,7 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                 
             reply = final_response.choices[0].message.content
         else:
+            logging.warning("DEBUG - No hay tool_calls, el modelo devolvió texto plano (posible alucinación de XML).")
             reply = response_message.content
 
         save_message(chat_id, "assistant", reply)
