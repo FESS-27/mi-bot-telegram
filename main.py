@@ -17,7 +17,7 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 client = Groq(api_key=GROQ_API_KEY)
 
 # Lista de modelos de respaldo para Groq
-GROQ_MODELS = ["meta-llama/llama-prompt-guard-2-22m", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-8b-8192", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
 
 # --- SQLite: Memoria persistente ---
 DB_PATH = "chat_history.db"
@@ -79,6 +79,7 @@ def search_web(query: str) -> str:
             if not results:
                 return "No encontré resultados para esa búsqueda."
             summary = [f"- {r['title']}: {r['body']}" for r in results]
+            logging.info(f"DEBUG BÚSQUEDA: {summary}")
             return "\n".join(summary)
     except Exception as e:
         return f"Error al buscar: {str(e)}"
