@@ -86,20 +86,43 @@ init_db()
 
 # --- Herramientas ---
 def search_web(query: str) -> str:
+    """Busca información en la web usando DuckDuckGo HTML (más estable en Render)."""
     try:
         logging.info(f"DEBUG BÚSQUEDA - Query: {query}")
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=3))
-            if not results:
-                logging.warning("DEBUG BÚSQUEDA - Sin resultados")
-                return "No encontré resultados para esa búsqueda."
-            summary = [f"- {r.get('title', 'Sin título')}: {r.get('body', 'Sin descripción')}" for r in results]
-            result_text = "\n".join(summary)
-            logging.info(f"DEBUG BÚSQUEDA - Éxito: {result_text[:200]}...") # Primeros 200 chars
-            return result_text
+        url = "https://html.duckduckgo.com/html/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        }
+        payload = {"q": query}
+        
+        # Timeout de 8 segundos para no colgar el bot en Render
+        response = requests.post(url, headers=headers, data=payload, timeout=8)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        results = []
+        
+        # Extraer los snippets de resultados
+        for a in soup.find_all('a', class_='result__snippet'):
+            text = a.get_text(strip=True)
+            if text:
+                results.append(text)
+                
+        if not results:
+            logging.warning("DEBUG BÚSQUEDA - Sin resultados")
+            return "No encontré resultados para esa búsqueda. Intenta reformular la pregunta."
+            
+        # Devolver máximo 3 resultados para ahorrar tokens
+        summary = "\n".join([f"- {r}" for r in results[:3]])
+        logging.info(f"DEBUG BÚSQUEDA - Éxito: {summary[:150]}...")
+        return summary
+        
+    except requests.exceptions.Timeout:
+        logging.error("DEBUG BÚSQUEDA - Timeout")
+        return "La búsqueda tardó demasiado. Intenta de nuevo."
     except Exception as e:
         logging.error(f"DEBUG BÚSQUEDA - Error: {str(e)}")
-        return f"Error al buscar: {str(e)}"
+        return f"Error técnico en la búsqueda: {str(e)}"
 
 def calculate(expression: str) -> str:
     try:
