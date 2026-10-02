@@ -16,6 +16,9 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
 client = Groq(api_key=GROQ_API_KEY)
 
+# Lista de modelos de respaldo para Groq
+GROQ_MODELS = ["meta-llama/llama-prompt-guard-2-22m", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+
 # --- SQLite: Memoria persistente ---
 DB_PATH = "chat_history.db"
 
@@ -162,12 +165,25 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
         save_message(chat_id, "user", user_text)
         history = get_history(chat_id)
 
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=history,
-            tools=tools,
-            tool_choice="auto"
-        )
+        response = None
+        last_error = None
+        for model in GROQ_MODELS:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=history,
+                    tools=tools,
+                    tool_choice="auto"
+                )
+                break # Éxito, salir del bucle
+            except Exception as e:
+                last_error = e
+                logging.warning(f"Modelo {model} falló: {e}")
+                continue
+        
+        if response is None:
+            raise last_error # Si todos fallan, lanza el último error
+
         response_message = response.choices[0].message
         
         if response_message.tool_calls:
@@ -179,10 +195,23 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
                 save_message(chat_id, "tool", func_response, tool_call_id=tool_call.id)
             
             history = get_history(chat_id)
-            final_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=history
-            )
+            
+            final_response = None
+            for model in GROQ_MODELS:
+                try:
+                    final_response = client.chat.completions.create(
+                        model=model,
+                        messages=history
+                    )
+                    break
+                except Exception as e:
+                    last_error = e
+                    logging.warning(f"Modelo {model} falló en respuesta final: {e}")
+                    continue
+            
+            if final_response is None:
+                raise last_error
+                
             reply = final_response.choices[0].message.content
         else:
             reply = response_message.content
