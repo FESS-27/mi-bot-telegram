@@ -85,42 +85,43 @@ init_db()
 
 # --- Herramientas ---
 def search_web(query: str) -> str:
-    """Busca información en la web usando DuckDuckGo HTML (más estable en Render)."""
+    """Busca información en la web con doble mecanismo de respaldo."""
     try:
         logging.info(f"DEBUG BÚSQUEDA - Query: {query}")
-        url = "https://html.duckduckgo.com/html/"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-        }
-        payload = {"q": query}
         
-        # Timeout de 8 segundos para no colgar el bot en Render
-        response = requests.post(url, headers=headers, data=payload, timeout=8)
+        # Intento 1: Librería ddgs (versión >=7.4.0 corrige el error de impersonate)
+        try:
+            from ddgs import DDGS
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=3, safesearch='off'))
+                if results:
+                    summary = "\n".join([f"- {r.get('title', '')}: {r.get('body', '')}" for r in results])
+                    logging.info(f"DEBUG BÚSQUEDA - Éxito con ddgs: {summary[:150]}...")
+                    return summary
+        except Exception as e:
+            logging.warning(f"DEBUG BÚSQUEDA - ddgs falló: {e}")
+            
+        # Intento 2: Fallback a requests HTML directo
+        import urllib.parse
+        from bs4 import BeautifulSoup
+        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        response = requests.get(url, headers=headers, timeout=8)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        results = []
+        snippets = [a.get_text(strip=True) for a in soup.find_all('a', class_='result__snippet') if a.get_text(strip=True)]
         
-        # Extraer los snippets de resultados
-        for a in soup.find_all('a', class_='result__snippet'):
-            text = a.get_text(strip=True)
-            if text:
-                results.append(text)
-                
-        if not results:
-            logging.warning("DEBUG BÚSQUEDA - Sin resultados")
-            return "No encontré resultados para esa búsqueda. Intenta reformular la pregunta."
+        if snippets:
+            summary = "\n".join([f"- {s}" for s in snippets[:3]])
+            logging.info(f"DEBUG BÚSQUEDA - Éxito con requests: {summary[:150]}...")
+            return summary
             
-        # Devolver máximo 3 resultados para ahorrar tokens
-        summary = "\n".join([f"- {r}" for r in results[:3]])
-        logging.info(f"DEBUG BÚSQUEDA - Éxito: {summary[:150]}...")
-        return summary
+        logging.warning("DEBUG BÚSQUEDA - Sin resultados en ambos métodos")
+        return "No encontré resultados. Intenta reformular la pregunta."
         
-    except requests.exceptions.Timeout:
-        logging.error("DEBUG BÚSQUEDA - Timeout")
-        return "La búsqueda tardó demasiado. Intenta de nuevo."
     except Exception as e:
-        logging.error(f"DEBUG BÚSQUEDA - Error: {str(e)}")
+        logging.error(f"DEBUG BÚSQUEDA - Error crítico: {str(e)}")
         return f"Error técnico en la búsqueda: {str(e)}"
 
 def calculate(expression: str) -> str:
