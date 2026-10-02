@@ -88,36 +88,62 @@ init_db()
 
 # --- Herramientas ---
 def search_web(query: str) -> str:
-    """Busca información usando Jina AI con timeout agresivo para Render Free."""
+    """Busca información web y recupera contenido útil de los resultados."""
     try:
         logging.info(f"DEBUG BÚSQUEDA - Query: {query}")
+
         jina_api_key = os.environ.get("JINA_API_KEY")
         if not jina_api_key:
             return "Error: Falta la variable de entorno JINA_API_KEY."
-            
+
         url = f"https://s.jina.ai/{urllib.parse.quote(query)}"
         headers = {
             "Authorization": f"Bearer {jina_api_key}",
             "Accept": "application/json",
             "X-Retain-Images": "none"
         }
-        
-        # Timeout reducido a 5 segundos y solo 2 resultados para ahorrar tokens
-        response = requests.get(url, headers=headers, params={"count": 2}, timeout=5)
+
+        response = requests.get(
+            url,
+            headers=headers,
+            params={"count": 5},
+            timeout=15
+        )
         response.raise_for_status()
         data = response.json()
-        
+
         results = data.get("data", [])
         if not results:
             return "No encontré resultados para esa búsqueda."
-            
-        summary = "\n".join([f"- {r.get('title', '')}: {r.get('description', '')}" for r in results[:2]])
-        logging.info(f"DEBUG BÚSQUEDA - Éxito: {summary[:100]}...")
+
+        summaries = []
+
+        for result in results[:5]:
+            title = result.get("title", "Sin título")
+            source = result.get("url", "")
+            content = result.get("content", "")
+            description = result.get("description", "")
+
+            text = content or description or "Sin contenido disponible"
+
+            summaries.append(
+                f"Título: {title}\n"
+                f"Fuente: {source}\n"
+                f"Contenido:\n{text[:2500]}"
+            )
+
+        summary = "\n\n---\n\n".join(summaries)
+
+        logging.info(
+            f"DEBUG BÚSQUEDA - Resultados recuperados: {len(summaries)}"
+        )
+
         return summary
-        
+
     except requests.exceptions.Timeout:
-        logging.error("DEBUG BÚSQUEDA - Timeout (5s)")
-        return "La búsqueda tardó demasiado. Intenta con una pregunta más específica."
+        logging.error("DEBUG BÚSQUEDA - Timeout")
+        return "La búsqueda tardó demasiado. Intenta de nuevo."
+
     except Exception as e:
         logging.error(f"DEBUG BÚSQUEDA - Error: {str(e)}")
         return f"Error técnico en la búsqueda: {str(e)}"
