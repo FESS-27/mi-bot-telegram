@@ -31,33 +31,35 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_history(chat_id, max_messages=7):
+def get_history(chat_id, max_messages=6):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # 1. Obtener el mensaje de sistema (si existe)
+    # 1. Obtener el mensaje de sistema
     c.execute("SELECT role, content, tool_calls, tool_call_id FROM history WHERE chat_id=? AND role='system' LIMIT 1", (chat_id,))
     system_row = c.fetchone()
     
-    # 2. Obtener los últimos N mensajes (excluyendo el sistema)
+    # 2. Obtener solo los últimos 6 mensajes (reducido de 10 para ahorrar más tokens)
     c.execute("SELECT role, content, tool_calls, tool_call_id FROM history WHERE chat_id=? AND role!='system' ORDER BY rowid DESC LIMIT ?", (chat_id, max_messages))
     rows = c.fetchall()
     conn.close()
     
     history = []
-    # Agregar sistema al principio
     if system_row:
         role, content, tool_calls, tool_call_id = system_row
         msg = {"role": role}
-        if content: msg["content"] = content
+        if content: msg["content"] = content[:1000] # Truncar sistema si es muy largo
         history.append(msg)
         
-    # Agregar el resto en orden cronológico (revertimos el ORDER BY DESC)
     for role, content, tool_calls, tool_call_id in reversed(rows):
         msg = {"role": role}
-        if content: msg["content"] = content
-        if tool_calls: msg["tool_calls"] = json.loads(tool_calls)
-        if tool_call_id: msg["tool_call_id"] = tool_call_id
+        if content: 
+            # TRUNCAR CONTENIDO A 400 CARACTERES PARA EVITAR ERROR 429 DE GROQ
+            msg["content"] = (content[:400] + "...[truncado]") if len(content) > 400 else content
+        if tool_calls: 
+            msg["tool_calls"] = json.loads(tool_calls)
+        if tool_call_id: 
+            msg["tool_call_id"] = tool_call_id
         history.append(msg)
         
     return history
@@ -86,46 +88,38 @@ init_db()
 
 # --- Herramientas ---
 def search_web(query: str) -> str:
-    """Busca información en la web usando Jina AI Search (gratuita y estable para agentes)."""
+    """Busca información usando Jina AI con timeout agresivo para Render Free."""
     try:
         logging.info(f"DEBUG BÚSQUEDA - Query: {query}")
         jina_api_key = os.environ.get("JINA_API_KEY")
         if not jina_api_key:
             return "Error: Falta la variable de entorno JINA_API_KEY."
             
-        # Jina Search API endpoint
         url = f"https://s.jina.ai/{urllib.parse.quote(query)}"
         headers = {
             "Authorization": f"Bearer {jina_api_key}",
             "Accept": "application/json",
-            "X-Retain-Images": "none" # Ahorra tokens eliminando imágenes
-        }
-        params = {
-            "count": 3 # Máximo 3 resultados
+            "X-Retain-Images": "none"
         }
         
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        # Timeout reducido a 5 segundos y solo 2 resultados para ahorrar tokens
+        response = requests.get(url, headers=headers, params={"count": 2}, timeout=5)
         response.raise_for_status()
         data = response.json()
         
         results = data.get("data", [])
         if not results:
-            logging.warning("DEBUG BÚSQUEDA - Sin resultados en Jina")
             return "No encontré resultados para esa búsqueda."
             
-        # Extraer título y descripción para dar contexto al LLM
-        summary_parts = []
-        for r in results[:3]:
-            title = r.get('title', 'Sin título')
-            desc = r.get('description', '')
-            summary_parts.append(f"- {title}: {desc}")
-            
-        summary = "\n".join(summary_parts)
-        logging.info(f"DEBUG BÚSQUEDA - Éxito con Jina: {summary[:150]}...")
+        summary = "\n".join([f"- {r.get('title', '')}: {r.get('description', '')}" for r in results[:2]])
+        logging.info(f"DEBUG BÚSQUEDA - Éxito: {summary[:100]}...")
         return summary
         
+    except requests.exceptions.Timeout:
+        logging.error("DEBUG BÚSQUEDA - Timeout (5s)")
+        return "La búsqueda tardó demasiado. Intenta con una pregunta más específica."
     except Exception as e:
-        logging.error(f"DEBUG BÚSQUEDA - Error crítico: {str(e)}")
+        logging.error(f"DEBUG BÚSQUEDA - Error: {str(e)}")
         return f"Error técnico en la búsqueda: {str(e)}"
 
 def calculate(expression: str) -> str:
