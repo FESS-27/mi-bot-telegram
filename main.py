@@ -3,6 +3,7 @@ import logging
 import sqlite3
 import json
 import requests
+import urllib.parse
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -85,40 +86,43 @@ init_db()
 
 # --- Herramientas ---
 def search_web(query: str) -> str:
-    """Busca información en la web con doble mecanismo de respaldo."""
+    """Busca información en la web usando Jina AI Search (gratuita y estable para agentes)."""
     try:
         logging.info(f"DEBUG BÚSQUEDA - Query: {query}")
-        
-        # Intento 1: Librería ddgs (versión >=7.4.0 corrige el error de impersonate)
-        try:
-            from ddgs import DDGS
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=3, safesearch='off'))
-                if results:
-                    summary = "\n".join([f"- {r.get('title', '')}: {r.get('body', '')}" for r in results])
-                    logging.info(f"DEBUG BÚSQUEDA - Éxito con ddgs: {summary[:150]}...")
-                    return summary
-        except Exception as e:
-            logging.warning(f"DEBUG BÚSQUEDA - ddgs falló: {e}")
+        jina_api_key = os.environ.get("JINA_API_KEY")
+        if not jina_api_key:
+            return "Error: Falta la variable de entorno JINA_API_KEY."
             
-        # Intento 2: Fallback a requests HTML directo
-        import urllib.parse
-        from bs4 import BeautifulSoup
-        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        response = requests.get(url, headers=headers, timeout=8)
+        # Jina Search API endpoint
+        url = f"https://s.jina.ai/{urllib.parse.quote(query)}"
+        headers = {
+            "Authorization": f"Bearer {jina_api_key}",
+            "Accept": "application/json",
+            "X-Retain-Images": "none" # Ahorra tokens eliminando imágenes
+        }
+        params = {
+            "count": 3 # Máximo 3 resultados
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
+        data = response.json()
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        snippets = [a.get_text(strip=True) for a in soup.find_all('a', class_='result__snippet') if a.get_text(strip=True)]
-        
-        if snippets:
-            summary = "\n".join([f"- {s}" for s in snippets[:3]])
-            logging.info(f"DEBUG BÚSQUEDA - Éxito con requests: {summary[:150]}...")
-            return summary
+        results = data.get("data", [])
+        if not results:
+            logging.warning("DEBUG BÚSQUEDA - Sin resultados en Jina")
+            return "No encontré resultados para esa búsqueda."
             
-        logging.warning("DEBUG BÚSQUEDA - Sin resultados en ambos métodos")
-        return "No encontré resultados. Intenta reformular la pregunta."
+        # Extraer título y descripción para dar contexto al LLM
+        summary_parts = []
+        for r in results[:3]:
+            title = r.get('title', 'Sin título')
+            desc = r.get('description', '')
+            summary_parts.append(f"- {title}: {desc}")
+            
+        summary = "\n".join(summary_parts)
+        logging.info(f"DEBUG BÚSQUEDA - Éxito con Jina: {summary[:150]}...")
+        return summary
         
     except Exception as e:
         logging.error(f"DEBUG BÚSQUEDA - Error crítico: {str(e)}")
