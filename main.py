@@ -17,7 +17,7 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 client = Groq(api_key=GROQ_API_KEY)
 
 # Lista de modelos de respaldo para Groq
-GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama3-8b-8192", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+GROQ_MODELS = ["llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
 
 # --- SQLite: Memoria persistente ---
 DB_PATH = "chat_history.db"
@@ -100,11 +100,11 @@ tools = [
         "type": "function",
         "function": {
             "name": "search_web",
-            "description": "Busca información actualizada en la web.",
+            "description": "Search the web for real-time, up-to-date information. Use this when the user asks for current data like exchange rates, news, or weather.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "La consulta de búsqueda"}
+                    "query": {"type": "string", "description": "The search query in English for better results (e.g., 'USD to CRC exchange rate today')"}
                 },
                 "required": ["query"]
             }
@@ -114,11 +114,11 @@ tools = [
         "type": "function",
         "function": {
             "name": "calculate",
-            "description": "Realiza cálculos matemáticos.",
+            "description": "Evaluate a mathematical expression.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "expression": {"type": "string", "description": "La expresión matemática (ej: '2+2')"}
+                    "expression": {"type": "string", "description": "The mathematical expression (e.g., '2+2')"}
                 },
                 "required": ["expression"]
             }
