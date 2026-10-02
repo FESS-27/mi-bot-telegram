@@ -29,22 +29,35 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_history(chat_id):
+def get_history(chat_id, max_messages=7):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT role, content, tool_calls, tool_call_id FROM history WHERE chat_id=?", (chat_id,))
+    
+    # 1. Obtener el mensaje de sistema (si existe)
+    c.execute("SELECT role, content, tool_calls, tool_call_id FROM history WHERE chat_id=? AND role='system' LIMIT 1", (chat_id,))
+    system_row = c.fetchone()
+    
+    # 2. Obtener los últimos N mensajes (excluyendo el sistema)
+    c.execute("SELECT role, content, tool_calls, tool_call_id FROM history WHERE chat_id=? AND role!='system' ORDER BY rowid DESC LIMIT ?", (chat_id, max_messages))
     rows = c.fetchall()
     conn.close()
+    
     history = []
-    for role, content, tool_calls, tool_call_id in rows:
+    # Agregar sistema al principio
+    if system_row:
+        role, content, tool_calls, tool_call_id = system_row
         msg = {"role": role}
-        if content:
-            msg["content"] = content
-        if tool_calls:
-            msg["tool_calls"] = json.loads(tool_calls)
-        if tool_call_id:
-            msg["tool_call_id"] = tool_call_id
+        if content: msg["content"] = content
         history.append(msg)
+        
+    # Agregar el resto en orden cronológico (revertimos el ORDER BY DESC)
+    for role, content, tool_calls, tool_call_id in reversed(rows):
+        msg = {"role": role}
+        if content: msg["content"] = content
+        if tool_calls: msg["tool_calls"] = json.loads(tool_calls)
+        if tool_call_id: msg["tool_call_id"] = tool_call_id
+        history.append(msg)
+        
     return history
 
 def save_message(chat_id, role, content=None, tool_calls=None, tool_call_id=None):
@@ -234,14 +247,28 @@ async def process_text(chat_id: int, user_text: str, update: Update, context: Co
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     clear_history(chat_id)
-    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde de manera corta y al punto, en el mismo idioma que te hablen.")
-    await update.message.reply_text("¡Hola! Puedo:\n🔍 Buscar en la web\n🧮 Hacer cálculos\n🎤 Transcribir voz\n\nUsa /reset para borrar memoria.")
+    system_prompt = (
+        "Eres un asistente personal útil. REGLAS ESTRICTAS: "
+        "1. Responde ÚNICAMENTE en el mismo idioma en que el usuario te escribió. "
+        "2. Sé breve, directo y al punto. Sin explicaciones extensas ni saludos innecesarios. "
+        "3. No inventes ni asumas información. Si no sabes algo o te falta información, pregúntalo directamente. "
+        "4. Usa las herramientas de búsqueda o cálculo cuando sea necesario para dar datos reales."
+    )
+    save_message(chat_id, "system", system_prompt)
+    await update.message.reply_text("¡Hi FESS! Reglas cargadas. Puedo:\n🔍 Buscar en la web\n🧮 Hacer cálculos\n🎤 Transcribir voz\n\nUsa /reset para reiniciar.")
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     clear_history(chat_id)
-    save_message(chat_id, "system", "Eres un asistente personal útil. Puedes buscar en la web y hacer cálculos. Responde en español e inglés.")
-    await update.message.reply_text("Memoria borrada.")
+    system_prompt = (
+        "Eres un asistente personal útil. REGLAS ESTRICTAS: "
+        "1. Responde ÚNICAMENTE en el mismo idioma en que el usuario te escribió. "
+        "2. Sé breve, directo y al punto. Sin explicaciones extensas ni saludos innecesarios. "
+        "3. No inventes ni asumas información. Si no sabes algo o te falta información, pregúntalo directamente. "
+        "4. Usa las herramientas de búsqueda o cálculo cuando sea necesario para dar datos reales."
+    )
+    save_message(chat_id, "system", system_prompt)
+    await update.message.reply_text("Memoria y reglas reiniciadas.")
 
 def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
