@@ -2,6 +2,8 @@ import os
 import logging
 import sqlite3
 import json
+import requests
+from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from groq import Groq
